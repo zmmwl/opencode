@@ -22,6 +22,40 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
+import { appendFileSync, mkdirSync, existsSync } from "fs"
+import { join } from "path"
+import { homedir } from "os"
+
+// Helper to print debug info for LLM interactions to a separate file
+export function debugLLM(type: string, data: any) {
+  if (!Flag.OPENCODE_DEBUG_LLM) return
+  const separator = "═".repeat(60)
+  const subSeparator = "─".repeat(40)
+
+  const timestamp = new Date().toISOString()
+  const logPath = process.env.OPENCODE_DEBUG_LLM_FILE || join(homedir(), ".local", "share", "opencode", "logs", "llm-debug.log")
+
+  // Ensure directory exists
+  const logDir = join(logPath, "..")
+  if (!existsSync(logDir)) {
+    mkdirSync(logDir, { recursive: true })
+  }
+
+  const content = [
+    `\n${separator}`,
+    `🔍 LLM DEBUG [${type}] ${timestamp}`,
+    subSeparator,
+    typeof data === "object" ? JSON.stringify(data, null, 2) : String(data),
+    separator,
+  ].join("\n")
+
+  try {
+    appendFileSync(logPath, content, "utf-8")
+  } catch (e) {
+    // Fallback to console if file write fails
+    console.error(content)
+  }
+}
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -179,6 +213,38 @@ export namespace LLM {
         execute: async () => ({ output: "", title: "", metadata: {} }),
       })
     }
+
+    // Debug: Log the full request before sending to LLM
+    const requestMessages = [
+      ...system.map(
+        (x): ModelMessage => ({
+          role: "system",
+          content: x,
+        }),
+      ),
+      ...input.messages,
+    ]
+    debugLLM("REQUEST", {
+      model: {
+        provider: input.model.providerID,
+        id: input.model.id,
+      },
+      agent: input.agent.name,
+      tools: Object.keys(tools),
+      systemPrompt: system.join("\n").slice(0, 2000) + (system.join("\n").length > 2000 ? "\n... (truncated)" : ""),
+      messages: requestMessages.map((msg, idx) => ({
+        index: idx,
+        role: msg.role,
+        content: typeof msg.content === "string"
+          ? msg.content.slice(0, 500) + (msg.content.length > 500 ? "..." : "")
+          : msg.content,
+      })),
+      options: {
+        temperature: params.temperature,
+        topP: params.topP,
+        maxOutputTokens,
+      },
+    })
 
     return streamText({
       onError(error) {

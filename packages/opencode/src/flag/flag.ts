@@ -51,6 +51,9 @@ export namespace Flag {
   export const OPENCODE_MODELS_URL = process.env["OPENCODE_MODELS_URL"]
   export const OPENCODE_MODELS_PATH = process.env["OPENCODE_MODELS_PATH"]
 
+  // Debug LLM interactions - print full request/response to logs
+  export const OPENCODE_DEBUG_LLM = truthy("OPENCODE_DEBUG_LLM")
+
   function number(key: string) {
     const value = process.env[key]
     if (!value) return undefined

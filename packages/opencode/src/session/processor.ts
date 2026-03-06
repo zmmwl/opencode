@@ -10,7 +10,7 @@ import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
 import { Plugin } from "@/plugin"
 import type { Provider } from "@/provider/provider"
-import { LLM } from "./llm"
+import { LLM, debugLLM } from "./llm"
 import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
 import { PermissionNext } from "@/permission/next"
@@ -54,6 +54,54 @@ export namespace SessionProcessor {
 
             for await (const value of stream.fullStream) {
               input.abort.throwIfAborted()
+
+              // Debug: Log LLM response events
+              debugLLM(`RESPONSE: ${value.type}`, (() => {
+                switch (value.type) {
+                  case "start":
+                    return { type: "start" }
+                  case "text-start":
+                  case "text-end":
+                    return { type: value.type }
+                  case "text-delta":
+                    return { type: value.type, text: value.text }
+                  case "reasoning-start":
+                  case "reasoning-end":
+                    return { type: value.type, id: value.id }
+                  case "reasoning-delta":
+                    return { type: value.type, id: value.id, text: value.text }
+                  case "tool-input-start":
+                    return { type: value.type, id: value.id, toolName: value.toolName }
+                  case "tool-call":
+                    return { type: value.type, toolCallId: value.toolCallId, toolName: value.toolName, input: value.input }
+                  case "tool-result":
+                    return {
+                      type: value.type,
+                      toolCallId: value.toolCallId,
+                      toolName: value.toolName,
+                      output: typeof value.output?.output === "string"
+                        ? value.output.output.slice(0, 500) + (value.output.output.length > 500 ? "..." : "")
+                        : value.output?.output,
+                    }
+                  case "tool-error":
+                    return { type: value.type, toolCallId: value.toolCallId, error: String(value.error) }
+                  case "start-step":
+                    return { type: value.type }
+                  case "finish-step":
+                    return {
+                      type: value.type,
+                      finishReason: value.finishReason,
+                      usage: value.usage,
+                    }
+                  case "finish":
+                    return { type: value.type }
+                  case "error":
+                    return { type: value.type, error: String(value.error) }
+                  default:
+                    return value
+                }
+              })())
+
               switch (value.type) {
                 case "start":
                   SessionStatus.set(input.sessionID, { type: "busy" })
