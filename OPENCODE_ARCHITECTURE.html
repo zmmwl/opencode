@@ -1,0 +1,1609 @@
+<h1>OpenCode 项目完整架构分析文档</h1>
+<blockquote>
+<p>OpenCode 是一个基于 TypeScript 的 AI 编程助手，采用事件驱动架构和插件化设计。</p>
+<p>文档版本: 1.0
+分析日期: 2026-02-09
+项目路径: <code>/mnt/c/dev/tmp/opencode</code></p>
+</blockquote>
+<hr>
+<h2>目录</h2>
+<ol>
+<li><a href="#1-%E9%A1%B9%E7%9B%AE%E6%A6%82%E8%A7%88">项目概览</a></li>
+<li><a href="#2-%E6%8A%80%E6%9C%AF%E6%A0%88">技术栈</a></li>
+<li><a href="#3-%E7%9B%AE%E5%BD%95%E7%BB%93%E6%9E%84">目录结构</a></li>
+<li><a href="#4-%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E5%8E%9F%E5%88%99">架构设计原则</a></li>
+<li><a href="#5-%E6%A0%B8%E5%BF%83%E6%A8%A1%E5%9D%97%E8%AF%A6%E8%A7%A3">核心模块详解</a></li>
+<li><a href="#6-%E8%AF%B7%E6%B1%82%E5%A4%84%E7%90%86%E5%AE%8C%E6%95%B4%E6%B5%81%E7%A8%8B">请求处理完整流程</a></li>
+<li><a href="#7-%E6%95%B0%E6%8D%AE%E6%B5%81%E4%B8%8E%E6%A8%A1%E5%9D%97%E5%85%B3%E7%B3%BB">数据流与模块关系</a></li>
+<li><a href="#8-%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F%E6%80%BB%E7%BB%93">设计模式总结</a></li>
+</ol>
+<hr>
+<h2>1. 项目概览</h2>
+<p>OpenCode 是一个功能强大的 AI 编程助手，类似于 Claude Code，提供了完整的代码编辑、命令执行、文件搜索等功能。其核心特点包括：</p>
+<ul>
+<li><strong>多 LLM 提供商支持</strong>: 支持 OpenAI、Anthropic、Google、本地模型等</li>
+<li><strong>插件化架构</strong>: 支持自定义工具、Agent 和提供商</li>
+<li><strong>流式处理</strong>: 实时显示 AI 响应和工具执行状态</li>
+<li><strong>细粒度权限控制</strong>: 基于规则的权限管理系统</li>
+<li><strong>MCP 协议支持</strong>: 集成 Model Context Protocol</li>
+</ul>
+<hr>
+<h2>2. 技术栈</h2>
+<table>
+<thead>
+<tr>
+<th>技术</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>运行时</strong></td>
+<td>Bun</td>
+</tr>
+<tr>
+<td><strong>语言</strong></td>
+<td>TypeScript</td>
+</tr>
+<tr>
+<td><strong>Web 框架</strong></td>
+<td>Hono</td>
+</tr>
+<tr>
+<td><strong>AI SDK</strong></td>
+<td>Vercel AI SDK</td>
+</tr>
+<tr>
+<td><strong>CLI 框架</strong></td>
+<td>Yargs</td>
+</tr>
+<tr>
+<td><strong>数据验证</strong></td>
+<td>Zod</td>
+</tr>
+<tr>
+<td><strong>存储</strong></td>
+<td>文件系统 + JSON</td>
+</tr>
+<tr>
+<td><strong>搜索</strong></td>
+<td>Ripgrep</td>
+</tr>
+<tr>
+<td><strong>消息队列</strong></td>
+<td>自定义事件系统 (Bus)</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>3. 目录结构</h2>
+<pre><code>packages/opencode/
+├── src/
+│   ├── index.ts                    # 主入口点
+│   │
+│   ├── cli/                        # CLI 命令行接口
+│   │   ├── cmd/                    # 命令定义
+│   │   │   ├── run.ts              # 运行命令
+│   │   │   ├── auth.ts             # 认证管理
+│   │   │   ├── agent.ts            # Agent 管理
+│   │   │   ├── generate.ts         # 生成命令
+│   │   │   ├── serve.ts            # 服务命令
+│   │   │   ├── session.ts          # 会话管理
+│   │   │   └── ...
+│   │   ├── error.ts                # 错误格式化
+│   │   └── ui.ts                   # UI 组件
+│   │
+│   ├── agent/                      # AI 智能体管理
+│   │   ├── agent.ts                # Agent 定义和配置
+│   │   └── generate.ts             # Agent 生成
+│   │
+│   ├── session/                    # 会话管理
+│   │   ├── session.ts              # 会话创建和管理
+│   │   ├── message-v2.ts           # 消息数据结构
+│   │   ├── llm.ts                  # LLM 通信
+│   │   ├── processor.ts            # 会话处理器（核心）
+│   │   ├── system.ts               # 系统提示词构建
+│   │   ├── prompt.ts               # 提示词处理入口
+│   │   ├── prompt/                 # 提示词模板
+│   │   │   ├── codex_header.txt    # 核心指令
+│   │   │   ├── anthropic.txt       # Anthropic 特定提示
+│   │   │   ├── beast.txt           # GPT 特定提示
+│   │   │   ├── gemini.txt          # Gemini 特定提示
+│   │   │   └── ...
+│   │   ├── retry.ts                # 重试机制
+│   │   └── status.ts               # 会话状态
+│   │
+│   ├── tool/                       # 工具系统
+│   │   ├── tool.ts                 # 工具基础接口
+│   │   ├── registry.ts             # 工具注册中心
+│   │   ├── truncation.ts           # 输出截断
+│   │   ├── builtin/                # 内置工具
+│   │   │   ├── read.ts             # 文件读取
+│   │   │   ├── write.ts            # 文件写入
+│   │   │   ├── edit.ts             # 文件编辑
+│   │   │   ├── bash.ts             # 命令执行
+│   │   │   ├── glob.ts             # 文件模式匹配
+│   │   │   ├── grep.ts             # 内容搜索
+│   │   │   ├── task.ts             # 任务管理
+│   │   │   ├── websearch.ts        # 网络搜索
+│   │   │   ├── webfetch.ts         # 网页抓取
+│   │   │   ├── skill.ts            # 技能执行
+│   │   │   └── ...
+│   │   └── context.ts              # 工具上下文
+│   │
+│   ├── provider/                   # LLM 提供商管理
+│   │   ├── provider.ts             # 提供商接口定义
+│   │   ├── transform.ts            # 消息转换
+│   │   └── builtin/                # 内置提供商
+│   │
+│   ├── mcp/                        # Model Context Protocol
+│   │   ├── mcp.ts                  # MCP 定义
+│   │   ├── client.ts               # MCP 客户端
+│   │   ├── server.ts               # MCP 服务器
+│   │   └── transport/              # 传输层
+│   │
+│   ├── config/                     # 配置管理
+│   │   ├── config.ts               # 配置定义和加载
+│   │   └── ...
+│   │
+│   ├── server/                     # HTTP 服务器
+│   │   ├── server.ts               # 服务器入口
+│   │   └── routes/                 # API 路由
+│   │
+│   ├── plugin/                     # 插件系统
+│   │   ├── plugin.ts               # 插件管理
+│   │   └── builtin/                # 内置插件
+│   │
+│   ├── storage/                    # 存储层
+│   │   ├── storage.ts              # 存储接口
+│   │   └── ...
+│   │
+│   ├── auth/                       # 认证管理
+│   │   ├── auth.ts                 # 认证接口
+│   │   └── oauth.ts                # OAuth 实现
+│   │
+│   ├── permission/                 # 权限控制
+│   │   ├── next.ts                 # 新版权限系统
+│   │   └── index.ts                # 旧版权限系统
+│   │
+│   ├── project/                    # 项目管理
+│   │   ├── instance.ts             # 项目实例
+│   │   └── worktree.ts             # 工作树管理
+│   │
+│   ├── file/                       # 文件操作
+│   │   ├── ripgrep.ts              # Ripgrep 集成
+│   │   └── ...
+│   │
+│   ├── util/                       # 工具函数
+│   │   ├── log.ts                  # 日志系统
+│   │   ├── bus.ts                  # 事件总线
+│   │   └── ...
+│   │
+│   └── installation.ts             # 安装信息
+│
+└── package.json
+</code></pre>
+<hr>
+<h2>4. 架构设计原则</h2>
+<h3>4.1 模块化设计</h3>
+<p>每个模块职责单一，通过明确的接口进行通信。核心模块包括：</p>
+<ul>
+<li><strong>CLI</strong>: 命令行入口</li>
+<li><strong>Config</strong>: 配置管理</li>
+<li><strong>Provider</strong>: LLM 提供商抽象</li>
+<li><strong>Agent</strong>: 智能体管理</li>
+<li><strong>Tool</strong>: 工具系统</li>
+<li><strong>Session</strong>: 会话管理</li>
+<li><strong>LLM</strong>: 大模型通信</li>
+<li><strong>Processor</strong>: 流式处理</li>
+</ul>
+<h3>4.2 事件驱动架构</h3>
+<p>使用自定义事件系统 (Bus) 实现模块间解耦通信：</p>
+<pre><code class="language-typescript">// 发布事件
+Bus.publish(MessageV2.Event.Updated, { info: msg })
+
+// 订阅事件
+Bus.subscribe(MessageV2.Event.Updated, ({ info }) =&gt; {
+  // 处理事件
+})
+</code></pre>
+<h3>4.3 插件化扩展</h3>
+<p>支持在关键点通过插件扩展功能：</p>
+<ul>
+<li><code>tool.execute.before</code> - 工具执行前</li>
+<li><code>tool.execute.after</code> - 工具执行后</li>
+<li><code>experimental.chat.system.transform</code> - 系统提示词转换</li>
+<li><code>experimental.text.complete</code> - 文本完成</li>
+</ul>
+<h3>4.4 类型安全</h3>
+<p>使用 Zod 进行运行时类型验证：</p>
+<pre><code class="language-typescript">export const Info = z.object({
+  id: z.string(),
+  name: z.string(),
+  permission: PermissionNext.Ruleset,
+  model: z.object({
+    modelID: z.string(),
+    providerID: z.string(),
+  }).optional(),
+})
+</code></pre>
+<hr>
+<h2>5. 核心模块详解</h2>
+<h3>5.1 CLI 模块 (<code>src/cli/</code>)</h3>
+<p><strong>功能</strong>: 命令行入口和参数解析</p>
+<p><strong>主入口文件</strong>: <code>src/index.ts</code></p>
+<pre><code class="language-typescript">// CLI 命令列表
+const cli = yargs(hideBin(process.argv))
+  .scriptName(&quot;opencode&quot;)
+  .command(RunCommand)        // 运行 OpenCode
+  .command(AuthCommand)       // 认证管理
+  .command(AgentCommand)      // Agent 管理
+  .command(GenerateCommand)   // 生成配置
+  .command(ServeCommand)      // 启动服务
+  .command(SessionCommand)    // 会话管理
+  .command(ModelsCommand)     // 模型列表
+  .command(McpCommand)        // MCP 管理
+  // ... 更多命令
+</code></pre>
+<p><strong>核心流程</strong>:</p>
+<ol>
+<li>初始化日志系统</li>
+<li>解析命令行参数</li>
+<li>调用相应命令处理器</li>
+<li>错误处理和格式化输出</li>
+</ol>
+<hr>
+<h3>5.2 Config 模块 (<code>src/config/</code>)</h3>
+<p><strong>功能</strong>: 多层级配置管理</p>
+<p><strong>配置加载顺序</strong> (从高到低):</p>
+<ol>
+<li><strong>远程配置</strong> - <code>.well-known/opencode</code></li>
+<li><strong>全局配置</strong> - <code>~/.config/opencode/config.json</code></li>
+<li><strong>自定义配置</strong> - <code>OPENCODE_CONFIG</code> 环境变量</li>
+<li><strong>项目配置</strong> - <code>opencode.json</code></li>
+<li><strong>目录配置</strong> - <code>.opencode/</code> 目录</li>
+<li><strong>内联配置</strong> - <code>OPENCODE_CONFIG_CONTENT</code> 环境变量</li>
+</ol>
+<p><strong>配置结构</strong>:</p>
+<pre><code class="language-typescript">export const Info = z.object({
+  agent: z.record(Agent),           // 智能体配置
+  provider: z.record(Provider),     // 提供商配置
+  model: z.string(),                 // 默认模型
+  permission: Permission,            // 权限控制
+  plugin: z.string().array(),        // 插件列表
+  autoConfirm: z.boolean(),          // 自动确认
+  fork: z.boolean(),                 // Fork 模式
+  suggestCommands: z.boolean(),      // 命令建议
+  storage: z.enum([&quot;memory&quot;, &quot;disk&quot;]), // 存储类型
+})
+</code></pre>
+<hr>
+<h3>5.3 Provider 模块 (<code>src/provider/</code>)</h3>
+<p><strong>功能</strong>: LLM 提供商抽象和模型管理</p>
+<p><strong>核心接口</strong>:</p>
+<pre><code class="language-typescript">export namespace Provider {
+  export const Info = z.object({
+    id: z.string(),
+    base: z.string(),
+    headers: z.record(z.string()).optional(),
+    options: z.record(z.string()).optional(),
+  })
+
+  export const Model = z.object({
+    providerID: z.string(),
+    modelID: z.string(),
+    api: z.object({
+      id: z.string(),
+      base: z.string().optional(),
+    }),
+    capabilities: z.object({
+      temperature: z.boolean(),
+      toolcall: z.boolean(),
+      interleaved: z.boolean(),
+    }),
+    cost: z.object({
+      input: z.number(),
+      output: z.number(),
+    }),
+    limit: z.object({
+      context: z.number(),
+    }),
+    options: z.record(z.string()).optional(),
+  })
+}
+</code></pre>
+<p><strong>内置提供商</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>提供商</th>
+<th>包名</th>
+<th>模型示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OpenAI</td>
+<td><code>@ai-sdk/openai</code></td>
+<td>gpt-4, gpt-5</td>
+</tr>
+<tr>
+<td>Anthropic</td>
+<td><code>@ai-sdk/anthropic</code></td>
+<td>claude-3-5-sonnet</td>
+</tr>
+<tr>
+<td>Google</td>
+<td><code>@ai-sdk/google</code></td>
+<td>gemini-2.0-flash</td>
+</tr>
+<tr>
+<td>Groq</td>
+<td><code>@ai-sdk/groq</code></td>
+<td>llama-3.3-70b</td>
+</tr>
+<tr>
+<td>Ollama</td>
+<td><code>@ai-sdk/ollama</code></td>
+<td>本地模型</td>
+</tr>
+<tr>
+<td>OpenCode</td>
+<td><code>@opencode-ai/sdk</code></td>
+<td>opencode 模型</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3>5.4 Agent 模块 (<code>src/agent/</code>)</h3>
+<p><strong>功能</strong>: AI 智能体角色定义和管理</p>
+<p><strong>核心数据结构</strong>:</p>
+<pre><code class="language-typescript">export namespace Agent {
+  export const Info = z.object({
+    name: z.string(),
+    description: z.string().optional(),
+    mode: z.enum([&quot;subagent&quot;, &quot;primary&quot;, &quot;all&quot;]),
+    native: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    temperature: z.number().optional(),
+    topP: z.number().optional(),
+    color: z.string().optional(),
+    permission: PermissionNext.Ruleset,
+    model: z.object({
+      modelID: z.string(),
+      providerID: z.string(),
+    }).optional(),
+    variant: z.string().optional(),
+    prompt: z.string().optional(),
+    options: z.record(z.string(), z.any()),
+    steps: z.number().int().positive().optional(),
+  })
+}
+</code></pre>
+<p><strong>内置 Agent</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>模式</th>
+<th>用途</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>build</code></td>
+<td>primary</td>
+<td>默认 Agent</td>
+<td>执行基于权限的工具</td>
+</tr>
+<tr>
+<td><code>plan</code></td>
+<td>primary</td>
+<td>计划模式</td>
+<td>禁止编辑工具，只允许计划</td>
+</tr>
+<tr>
+<td><code>general</code></td>
+<td>subagent</td>
+<td>通用 Agent</td>
+<td>研究和多步骤任务，禁用 Todo</td>
+</tr>
+<tr>
+<td><code>explore</code></td>
+<td>subagent</td>
+<td>探索 Agent</td>
+<td>快速探索代码库，只允许只读操作</td>
+</tr>
+<tr>
+<td><code>title</code></td>
+<td>primary</td>
+<td>标题生成</td>
+<td>隐藏 Agent，禁用所有工具</td>
+</tr>
+<tr>
+<td><code>summary</code></td>
+<td>primary</td>
+<td>总结 Agent</td>
+<td>隐藏 Agent，生成会话总结</td>
+</tr>
+<tr>
+<td><code>compaction</code></td>
+<td>primary</td>
+<td>压缩 Agent</td>
+<td>隐藏 Agent，压缩对话历史</td>
+</tr>
+</tbody>
+</table>
+<p><strong>默认权限配置</strong>:</p>
+<pre><code class="language-typescript">const defaults = PermissionNext.fromConfig({
+  &quot;*&quot;: &quot;allow&quot;,              // 默认允许所有操作
+  doom_loop: &quot;ask&quot;,         // 循环检测需要询问
+  external_directory: {
+    &quot;*&quot;: &quot;ask&quot;,             // 外部目录需要询问
+  },
+  question: &quot;deny&quot;,         // 默认禁止提问
+  plan_enter: &quot;deny&quot;,       // 默认禁止进入计划模式
+  plan_exit: &quot;deny&quot;,        // 默认禁止退出计划模式
+  read: {
+    &quot;*&quot;: &quot;allow&quot;,           // 默认允许读取
+    &quot;*.env&quot;: &quot;ask&quot;,         // 环境变量文件需要询问
+  },
+})
+</code></pre>
+<hr>
+<h3>5.5 Tool 模块 (<code>src/tool/</code>)</h3>
+<p><strong>功能</strong>: 工具定义、注册和执行</p>
+<p><strong>工具接口定义</strong> (<code>tool.ts</code>):</p>
+<pre><code class="language-typescript">export namespace Tool {
+  export interface InitContext {
+    agent?: Agent.Info
+  }
+
+  export type Context&lt;M extends Metadata = Metadata&gt; = {
+    sessionID: string
+    messageID: string
+    agent: string
+    abort: AbortSignal
+    callID?: string
+    extra?: { [key: string]: any }
+    messages: MessageV2.WithParts[]
+    metadata(input: { title?: string; metadata?: M }): void
+    ask(input: Omit&lt;PermissionNext.Request, &quot;id&quot; | &quot;sessionID&quot; | &quot;tool&quot;&gt;): Promise&lt;void&gt;
+  }
+
+  export interface Info&lt;Parameters extends z.ZodType = z.ZodType, M extends Metadata = Metadata&gt; {
+    id: string
+    init: (ctx?: InitContext) =&gt; Promise&lt;{
+      description: string
+      parameters: Parameters
+      execute(args: z.infer&lt;Parameters&gt;, ctx: Context): Promise&lt;{
+        title: string
+        metadata: M
+        output: string
+        attachments?: MessageV2.FilePart[]
+      }&gt;
+      formatValidationError?(error: z.ZodError): string
+    }&gt;
+  }
+
+  export function define&lt;Parameters extends z.ZodType, Result extends Metadata&gt;(
+    id: string,
+    init: Info&lt;Parameters, Result&gt;[&quot;init&quot;] | Awaited&lt;ReturnType&lt;Info&lt;Parameters, Result&gt;[&quot;init&quot;]&gt;&gt;,
+  ): Info&lt;Parameters, Result&gt;
+}
+</code></pre>
+<p><strong>内置工具列表</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>功能</th>
+<th>参数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>read</code></td>
+<td>读取文件</td>
+<td>filePath, offset?, limit?</td>
+</tr>
+<tr>
+<td><code>write</code></td>
+<td>写入文件</td>
+<td>content, filePath</td>
+</tr>
+<tr>
+<td><code>edit</code></td>
+<td>编辑文件</td>
+<td>filePath, oldString, newString, replaceAll?</td>
+</tr>
+<tr>
+<td><code>bash</code></td>
+<td>执行命令</td>
+<td>command, description, timeout?, workdir?</td>
+</tr>
+<tr>
+<td><code>glob</code></td>
+<td>文件匹配</td>
+<td>pattern, path?</td>
+</tr>
+<tr>
+<td><code>grep</code></td>
+<td>内容搜索</td>
+<td>pattern, path?, include?</td>
+</tr>
+<tr>
+<td><code>task</code></td>
+<td>任务管理</td>
+<td>(多个子命令)</td>
+</tr>
+<tr>
+<td><code>websearch</code></td>
+<td>网络搜索</td>
+<td>query</td>
+</tr>
+<tr>
+<td><code>webfetch</code></td>
+<td>网页抓取</td>
+<td>url</td>
+</tr>
+<tr>
+<td><code>skill</code></td>
+<td>技能执行</td>
+<td>skill, args?</td>
+</tr>
+<tr>
+<td><code>batch</code></td>
+<td>批量操作</td>
+<td>tasks</td>
+</tr>
+<tr>
+<td><code>apply_patch</code></td>
+<td>应用补丁</td>
+<td>diff</td>
+</tr>
+</tbody>
+</table>
+<p><strong>工具特性</strong>:</p>
+<ol>
+<li><strong>参数验证</strong>: 使用 Zod 进行运行时类型检查</li>
+<li><strong>输出截断</strong>: 自动处理大输出，保存到文件</li>
+<li><strong>权限控制</strong>: 通过 <code>ctx.ask()</code> 请求权限</li>
+<li><strong>错误处理</strong>: 统一的错误格式化和处理</li>
+<li><strong>插件支持</strong>: 工具执行前后触发插件事件</li>
+</ol>
+<hr>
+<h3>5.6 Session 模块 (<code>src/session/</code>)</h3>
+<p><strong>功能</strong>: 会话生命周期管理</p>
+<p><strong>核心数据结构</strong>:</p>
+<pre><code class="language-typescript">export namespace Session {
+  export const Info = z.object({
+    id: Identifier.schema(&quot;session&quot;),
+    slug: z.string(),
+    title: z.string(),
+    permission: PermissionNext.Ruleset,
+    time: z.object({
+      created: z.number(),
+      updated: z.number(),
+    }),
+  })
+
+  // 消息结构
+  export type Part =
+    | TextPart      // 文本片段
+    | ReasoningPart // 推理片段
+    | ToolPart      // 工具片段
+    | FilePart      // 文件片段
+    | StepStartPart // 步骤开始
+    | StepFinishPart// 步骤结束
+
+  export interface TextPart {
+    id: string
+    messageID: string
+    sessionID: string
+    type: &quot;text&quot;
+    text: string
+    time?: { start: number; end?: number }
+    metadata?: Record&lt;string, any&gt;
+  }
+
+  export interface ToolPart {
+    id: string
+    messageID: string
+    sessionID: string
+    type: &quot;tool&quot;
+    callID: string
+    tool: string
+    state: ToolState
+    metadata?: Record&lt;string, any&gt;
+  }
+
+  export type ToolState =
+    | { status: &quot;pending&quot;, input: {} }
+    | { status: &quot;running&quot;, input: {...}, time: { start } }
+    | { status: &quot;completed&quot;, input: {...}, output: string, time: { start, end } }
+    | { status: &quot;error&quot;, error: string }
+}
+</code></pre>
+<hr>
+<h3>5.7 LLM 模块 (<code>src/session/llm.ts</code>)</h3>
+<p><strong>功能</strong>: 大模型通信</p>
+<p><strong>核心函数</strong>:</p>
+<pre><code class="language-typescript">export async function stream(input: StreamInput) {
+  // 1. 并行获取配置
+  const [language, cfg, provider, auth] = await Promise.all([
+    Provider.getLanguage(input.model),
+    Config.get(),
+    Provider.getProvider(input.model.providerID),
+    Auth.get(input.model.providerID),
+  ])
+
+  // 2. 构建系统提示词
+  const system = [
+    ...(input.agent.prompt ? [input.agent.prompt] : []),
+    ...input.system,
+    ...(input.user.system ? [input.user.system] : []),
+  ].filter((x) =&gt; x).join(&quot;\n&quot;)
+
+  // 3. 解析工具
+  const tools = await resolveTools(input)
+
+  // 4. 调用 Vercel AI SDK
+  return streamText({
+    model: wrapLanguageModel({ model: language }),
+    messages: [
+      ...system.map((x): ModelMessage =&gt; ({ role: &quot;system&quot;, content: x })),
+      ...input.messages,
+    ],
+    tools,
+    maxOutputTokens,
+    abortSignal: input.abort,
+    temperature: input.agent.temperature,
+    experimental_repairToolCall(failed) {
+      // 工具调用名称大小写修复
+      const lower = failed.toolCall.toolName.toLowerCase()
+      if (lower !== failed.toolCall.toolName &amp;&amp; tools[lower]) {
+        return { ...failed.toolCall, toolName: lower }
+      }
+      return { ...failed.toolCall, toolName: &quot;invalid&quot; }
+    },
+  })
+}
+</code></pre>
+<hr>
+<h3>5.8 Processor 模块 (<code>src/session/processor.ts</code>)</h3>
+<p><strong>功能</strong>: 流式事件处理引擎</p>
+<p><strong>处理的事件类型</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>事件类型</th>
+<th>处理动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>text-start</code></td>
+<td>创建文本 Part</td>
+</tr>
+<tr>
+<td><code>text-delta</code></td>
+<td>增量更新文本内容</td>
+</tr>
+<tr>
+<td><code>text-end</code></td>
+<td>完成文本 Part</td>
+</tr>
+<tr>
+<td><code>reasoning-start</code></td>
+<td>创建推理 Part</td>
+</tr>
+<tr>
+<td><code>reasoning-delta</code></td>
+<td>更新推理内容</td>
+</tr>
+<tr>
+<td><code>reasoning-end</code></td>
+<td>完成推理 Part</td>
+</tr>
+<tr>
+<td><code>tool-call</code></td>
+<td>执行工具调用</td>
+</tr>
+<tr>
+<td><code>tool-result</code></td>
+<td>更新工具完成状态</td>
+</tr>
+<tr>
+<td><code>tool-error</code></td>
+<td>处理工具错误</td>
+</tr>
+<tr>
+<td><code>finish-step</code></td>
+<td>完成处理步骤</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td>错误处理和重试</td>
+</tr>
+</tbody>
+</table>
+<p><strong>循环检测机制</strong>:</p>
+<pre><code class="language-typescript">const DOOM_LOOP_THRESHOLD = 3
+
+// 在工具调用时检测
+case &quot;tool-call&quot;: {
+  const lastThree = parts.slice(-DOOM_LOOP_THRESHOLD)
+
+  if (
+    lastThree.length === DOOM_LOOP_THRESHOLD &amp;&amp;
+    lastThree.every(
+      (p) =&gt;
+        p.type === &quot;tool&quot; &amp;&amp;
+        p.tool === value.toolName &amp;&amp;
+        p.state.status !== &quot;pending&quot; &amp;&amp;
+        JSON.stringify(p.state.input) === JSON.stringify(value.input),
+    )
+  ) {
+    // 检测到循环，请求权限确认
+    await PermissionNext.ask({
+      permission: &quot;doom_loop&quot;,
+      patterns: [value.toolName],
+      sessionID: input.assistantMessage.sessionID,
+      metadata: { tool: value.toolName, input: value.input },
+      always: [value.toolName],
+      ruleset: agent.permission,
+    })
+  }
+  break
+}
+</code></pre>
+<hr>
+<h3>5.9 System Prompt 模块 (<code>src/session/system.ts</code>)</h3>
+<p><strong>功能</strong>: 系统提示词构建</p>
+<p><strong>构建顺序</strong>:</p>
+<pre><code class="language-typescript">export namespace SystemPrompt {
+  // 1. 基础指令 - codex_header.txt
+  export function instructions() {
+    return PROMPT_CODEX.trim()
+  }
+
+  // 2. 提供商特定提示
+  export function provider(model: Provider.Model) {
+    if (model.api.id.includes(&quot;gpt-5&quot;)) return [PROMPT_CODEX]
+    if (model.api.id.includes(&quot;gpt-&quot;) || model.api.id.includes(&quot;o1&quot;) || model.api.id.includes(&quot;o3&quot;))
+      return [PROMPT_BEAST]
+    if (model.api.id.includes(&quot;gemini-&quot;)) return [PROMPT_GEMINI]
+    if (model.api.id.includes(&quot;claude&quot;)) return [PROMPT_ANTHROPIC]
+    if (model.api.id.toLowerCase().includes(&quot;trinity&quot;)) return [PROMPT_TRINITY]
+    return [PROMPT_ANTHROPIC_WITHOUT_TODO]
+  }
+
+  // 3. 环境信息
+  export async function environment(model: Provider.Model) {
+    const project = Instance.project
+    return [
+      [
+        `You are powered by the model named ${model.api.id}.`,
+        `Here is some useful information about the environment you are running in:`,
+        `&lt;env&gt;`,
+        `  Working directory: ${Instance.directory}`,
+        `  Is directory a git repo: ${project.vcs === &quot;git&quot; ? &quot;yes&quot; : &quot;no&quot;}`,
+        `  Platform: ${process.platform}`,
+        `  Today's date: ${new Date().toDateString()}`,
+        `&lt;/env&gt;`,
+      ].join(&quot;\n&quot;),
+    ]
+  }
+}
+</code></pre>
+<p><strong>核心指令文件</strong> (<code>codex_header.txt</code>):</p>
+<pre><code>You are OpenCode, the best coding agent on the planet.
+
+You are an interactive CLI tool that helps users with software engineering tasks.
+
+## Editing constraints
+- Default to ASCII when editing or creating files.
+- Only add comments if they are necessary.
+- Try to use apply_patch for single file edits.
+
+## Tool usage
+- Prefer specialized tools over shell for file operations.
+- Use Bash for terminal operations.
+- Run tool calls in parallel when possible.
+
+## Git and workspace hygiene
+- You may be in a dirty git worktree.
+- NEVER revert existing changes you did not make unless explicitly requested.
+- NEVER use destructive commands like git reset --hard unless specifically requested.
+
+## Frontend tasks
+- Avoid collapsing into bland, generic layouts.
+- Use expressive fonts and avoid default stacks.
+- Choose a clear visual direction; avoid purple-on-white defaults.
+- Use meaningful animations instead of generic micro-motions.
+
+## Presenting your work
+- Be very concise; friendly coding teammate tone.
+- Do the work without asking questions.
+- Only ask when truly blocked.
+- For code changes: lead with explanation, then details.
+- File References: use inline code for paths (e.g., src/app.ts:42)
+</code></pre>
+<hr>
+<h3>5.10 Permission 模块 (<code>src/permission/</code>)</h3>
+<p><strong>功能</strong>: 细粒度权限控制系统</p>
+<p><strong>核心数据结构</strong>:</p>
+<pre><code class="language-typescript">export namespace PermissionNext {
+  // 权限动作类型
+  export const Action = z.enum([&quot;allow&quot;, &quot;deny&quot;, &quot;ask&quot;])
+  export type Action = z.infer&lt;typeof Action&gt;
+
+  // 权限规则
+  export const Rule = z.object({
+    permission: z.string(),
+    pattern: z.string(),
+    action: Action,
+  })
+  export type Rule = z.infer&lt;typeof Rule&gt;
+
+  // 权限规则集
+  export const Ruleset = Rule.array()
+  export type Ruleset = z.infer&lt;typeof Ruleset&gt;
+
+  // 权限请求
+  export const Request = z.object({
+    id: Identifier.schema(&quot;permission&quot;),
+    sessionID: Identifier.schema(&quot;session&quot;),
+    permission: z.string(),
+    patterns: z.string().array(),
+    metadata: z.record(z.string(), z.any()),
+    always: z.string().array(),
+    tool: z.object({
+      messageID: z.string(),
+      callID: z.string(),
+    }).optional(),
+  })
+}
+</code></pre>
+<p><strong>权限类型</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>权限</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>read</code></td>
+<td>文件读取</td>
+</tr>
+<tr>
+<td><code>edit</code></td>
+<td>文件编辑</td>
+</tr>
+<tr>
+<td><code>bash</code></td>
+<td>命令执行</td>
+</tr>
+<tr>
+<td><code>glob</code></td>
+<td>文件模式匹配</td>
+</tr>
+<tr>
+<td><code>grep</code></td>
+<td>内容搜索</td>
+</tr>
+<tr>
+<td><code>external_directory</code></td>
+<td>外部目录访问</td>
+</tr>
+<tr>
+<td><code>webfetch</code></td>
+<td>网络抓取</td>
+</tr>
+<tr>
+<td><code>websearch</code></td>
+<td>网络搜索</td>
+</tr>
+<tr>
+<td><code>doom_loop</code></td>
+<td>循环检测</td>
+</tr>
+<tr>
+<td><code>question</code></td>
+<td>提问</td>
+</tr>
+<tr>
+<td><code>plan_enter</code></td>
+<td>进入计划模式</td>
+</tr>
+<tr>
+<td><code>plan_exit</code></td>
+<td>退出计划模式</td>
+</tr>
+</tbody>
+</table>
+<p><strong>权限评估</strong>:</p>
+<pre><code class="language-typescript">export function evaluate(permission: string, pattern: string, ...rulesets: Ruleset[]): Rule {
+  const merged = merge(...rulesets)
+  const match = merged.findLast(
+    (rule) =&gt; Wildcard.match(permission, rule.permission) &amp;&amp; Wildcard.match(pattern, rule.pattern),
+  )
+  return match ?? { action: &quot;ask&quot;, permission, pattern: &quot;*&quot; }
+}
+</code></pre>
+<p><strong>错误类型</strong>:</p>
+<pre><code class="language-typescript">// 用户拒绝 - 中止执行
+export class RejectedError extends Error {
+  constructor() {
+    super(`The user rejected permission to use this specific tool call.`)
+  }
+}
+
+// 用户拒绝并提供反馈 - 继续执行
+export class CorrectedError extends Error {
+  constructor(message: string) {
+    super(`The user rejected permission with feedback: ${message}`)
+  }
+}
+
+// 配置规则拒绝 - 中止执行
+export class DeniedError extends Error {
+  constructor(public readonly ruleset: Ruleset) {
+    super(`Rule prevents tool usage. Relevant rules: ${JSON.stringify(ruleset)}`)
+  }
+}
+</code></pre>
+<hr>
+<h3>5.11 MCP 模块 (<code>src/mcp/</code>)</h3>
+<p><strong>功能</strong>: Model Context Protocol 实现</p>
+<p><strong>MCP 类型</strong>:</p>
+<pre><code class="language-typescript">export const Mcp = z.discriminatedUnion(&quot;type&quot;, [
+  z.object({
+    type: z.literal(&quot;local&quot;),
+    command: z.string(),
+    args: z.string().array(),
+    env: z.record(z.string()).optional(),
+  }),
+  z.object({
+    type: z.literal(&quot;remote&quot;),
+    url: z.string(),
+    headers: z.record(z.string()).optional(),
+  }),
+])
+</code></pre>
+<p><strong>支持的传输方式</strong>:</p>
+<ul>
+<li><strong>Local</strong>: 本地命令启动的 MCP 服务器</li>
+<li><strong>Remote</strong>: HTTP 远程 MCP 服务器</li>
+<li><strong>OAuth</strong>: 支持 OAuth 认证的 MCP 服务器</li>
+</ul>
+<hr>
+<h3>5.12 Plugin 模块 (<code>src/plugin/</code>)</h3>
+<p><strong>功能</strong>: 插件系统</p>
+<p><strong>插件钩子</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>钩子</th>
+<th>触发时机</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tool.execute.before</code></td>
+<td>工具执行前</td>
+</tr>
+<tr>
+<td><code>tool.execute.after</code></td>
+<td>工具执行后</td>
+</tr>
+<tr>
+<td><code>experimental.chat.system.transform</code></td>
+<td>系统提示词转换</td>
+</tr>
+<tr>
+<td><code>experimental.text.complete</code></td>
+<td>文本完成</td>
+</tr>
+</tbody>
+</table>
+<p><strong>插件 API</strong>:</p>
+<pre><code class="language-typescript">export namespace Plugin {
+  export function transform(hook: string, input: any): Promise&lt;void&gt;
+  export function trigger(hook: string, context: any, data: any): Promise&lt;any&gt;
+  export function register(plugin: Plugin.Info): void
+}
+</code></pre>
+<hr>
+<h3>5.13 Storage 模块 (<code>src/storage/</code>)</h3>
+<p><strong>功能</strong>: 数据持久化</p>
+<p><strong>存储接口</strong>:</p>
+<pre><code class="language-typescript">export namespace Storage {
+  export function write(path: string[], value: any): Promise&lt;void&gt;
+  export function read&lt;T&gt;(path: string[]): Promise&lt;T | undefined&gt;
+  export function exists(path: string[]): Promise&lt;boolean&gt;
+  export function remove(path: string[]): Promise&lt;void&gt;
+  export function list(path: string[]): Promise&lt;string[]&gt;
+}
+</code></pre>
+<p><strong>存储结构</strong>:</p>
+<pre><code>~/.opencode/
+├── sessions/
+│   └── {projectID}/
+│       └── {sessionID}.json
+├── messages/
+│   └── {projectID}/
+│       └── {sessionID}/
+│           └── {messageID}.json
+└── config.json
+</code></pre>
+<hr>
+<h3>5.14 Auth 模块 (<code>src/auth/</code>)</h3>
+<p><strong>功能</strong>: 认证管理</p>
+<p><strong>认证类型</strong>:</p>
+<pre><code class="language-typescript">export namespace Auth {
+  export const Info = z.discriminatedUnion(&quot;type&quot;, [
+    z.object({
+      type: z.literal(&quot;oauth&quot;),
+      accessToken: z.string(),
+      refreshToken: z.string().optional(),
+      expiresAt: z.number().optional(),
+    }),
+    z.object({
+      type: z.literal(&quot;apiKey&quot;),
+      apiKey: z.string(),
+    }),
+  ])
+}
+</code></pre>
+<p><strong>支持的平台</strong>:</p>
+<ul>
+<li>OpenAI OAuth</li>
+<li>GitHub OAuth</li>
+<li>自定义 API Key</li>
+</ul>
+<hr>
+<h3>5.15 Server 模块 (<code>src/server/</code>)</h3>
+<p><strong>功能</strong>: HTTP 服务器和 API</p>
+<p><strong>API 路由</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>路由</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/global</code></td>
+<td>全局配置</td>
+</tr>
+<tr>
+<td><code>/auth</code></td>
+<td>认证管理</td>
+</tr>
+<tr>
+<td><code>/session</code></td>
+<td>会话管理</td>
+</tr>
+<tr>
+<td><code>/project</code></td>
+<td>项目管理</td>
+</tr>
+<tr>
+<td><code>/file</code></td>
+<td>文件操作</td>
+</tr>
+<tr>
+<td><code>/config</code></td>
+<td>配置管理</td>
+</tr>
+<tr>
+<td><code>/pty</code></td>
+<td>终端会话</td>
+</tr>
+<tr>
+<td><code>/mcp</code></td>
+<td>MCP 服务</td>
+</tr>
+</tbody>
+</table>
+<p><strong>WebSocket 通信</strong>:</p>
+<ul>
+<li>会话状态更新</li>
+<li>工具执行结果</li>
+<li>通知消息</li>
+</ul>
+<hr>
+<h2>6. 请求处理完整流程</h2>
+<h3>6.1 流程图</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────────────────────┐
+│                           用户输入 CLI 命令                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  1. 初始化阶段                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Instance.init()                                                    │    │
+│  │   ├── Config.get() - 加载多层级配置                                 │    │
+│  │   ├── Storage.init() - 初始化存储                                   │    │
+│  │   ├── Plugin.register() - 注册插件                                  │    │
+│  │   └── Server.listen() - 启动 HTTP 服务器                            │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  2. 会话创建阶段                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Session.createNext()                                               │    │
+│  │   ├── 生成会话 ID (Identifier)                                      │    │
+│  │   ├── Agent.get(agentName) - 加载 Agent 配置                       │    │
+│  │   ├── PermissionNext.merge() - 合并权限规则                        │    │
+│  │   ├── Message.create() - 创建初始消息                              │    │
+│  │   └── Storage.write() - 持久化会话                                   │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  3. 上下文构建阶段                                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ SystemPrompt 构建                                                   │    │
+│  │   ├── instructions() - 基础指令 (codex_header.txt)                   │    │
+│  │   ├── provider(model) - 提供商特定提示                               │    │
+│  │   ├── environment(model) - 环境信息                                  │    │
+│  │   ├── agent.prompt - Agent 自定义提示                                │    │
+│  │   └── user.system - 用户自定义提示                                   │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  4. 工具解析阶段                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ ToolRegistry.tools()                                               │    │
+│  │   ├── 获取所有工具列表                                               │    │
+│  │   ├── 根据 Agent 权限过滤工具                                        │    │
+│  │   ├── 根据模型能力过滤工具                                           │    │
+│  │   ├── 并行初始化工具                                                 │    │
+│  │   └── 转换为 AI SDK 格式                                             │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  5. LLM 通信阶段                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ LLM.stream()                                                        │    │
+│  │   ├── Provider.getLanguage() - 获取语言模型                         │    │
+│  │   ├── 构建系统提示词                                                 │    │
+│  │   ├── Plugin.transform() - 应用插件转换                             │    │
+│  │   ├── resolveTools() - 解析工具                                      │    │
+│  │   ├── streamText() - 调用 Vercel AI SDK                             │    │
+│  │   └── 返回流式响应 (fullStream)                                      │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  6. 会话处理阶段                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  for await (const value of stream.fullStream)                       │    │
+│  │      │                                                              │    │
+│  │      ├─► text-start     → Session.updatePart() 创建文本 Part        │    │
+│  │      │                   Bus.publish(PartCreated)                   │    │
+│  │      │                                                              │    │
+│  │      ├─► text-delta     → Session.updatePart() 增量更新文本          │    │
+│  │      │                   Bus.publish(PartUpdated)                   │    │
+│  │      │                                                              │    │
+│  │      ├─► text-end       → Session.updatePart() 完成文本 Part         │    │
+│  │      │                   Plugin.trigger(text.complete)              │    │
+│  │      │                                                              │    │
+│  │      ├─► tool-call      → 检测循环 (doom_loop)                       │    │
+│  │      │                   PermissionNext.ask() 权限检查              │    │
+│  │      │                   Tool.execute() 执行工具                    │    │
+│  │      │                   Plugin.trigger(tool.execute.before)        │    │
+│  │      │                   Plugin.trigger(tool.execute.after)         │    │
+│  │      │                                                              │    │
+│  │      ├─► tool-result    → Session.updatePart() 更新工具状态          │    │
+│  │      │                   Bus.publish(PartUpdated)                   │    │
+│  │      │                                                              │    │
+│  │      ├─► tool-error     → Session.updatePart() 更新错误状态          │    │
+│  │      │                   检查是否需要中断 (blocked)                  │    │
+│  │      │                                                              │    │
+│  │      ├─► reasoning-*    → 处理推理过程 (Claude 模型)                  │    │
+│  │      │                                                              │    │
+│  │      └─► finish-step    → 完成处理步骤                               │    │
+│  │                   Session.updateMessage() 更新消息                  │    │
+│  │                   Bus.publish(MessageUpdated)                      │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  7. 结果返回阶段                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │   ├── Storage.write() - 持久化消息历史                               │    │
+│  │   ├── SessionStatus.set() - 更新会话状态                            │    │
+│  │   ├── 返回给用户                                                     │    │
+│  │   └── 等待下一个用户输入                                             │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
+</code></pre>
+<h3>6.2 时序图</h3>
+<pre><code>┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
+│  User   │     │   CLI   │     │ Session │     │   LLM   │     │  Tools  │
+└────┬────┘     └────┬────┘     └────┬────┘     └────┬────┘     └────┬────┘
+     │               │               │               │               │
+     │  输入命令      │               │               │               │
+     ├──────────────►│               │               │               │
+     │               │               │               │               │
+     │               │  创建会话      │               │               │
+     │               ├──────────────►│               │               │
+     │               │               │               │               │
+     │               │               │  构建上下文    │               │
+     │               │               ├──────────────►│               │
+     │               │               │               │               │
+     │               │               │  返回流式响应  │               │
+     │               │               │◄──────────────┤               │
+     │               │               │               │               │
+     │               │               │  text-delta   │               │
+     │               │               │◄──────────────┤               │
+     │               │               │               │               │
+     │               │  显示输出      │               │               │
+     │               │◄──────────────┤               │               │
+     │               │               │               │               │
+     │               │               │  tool-call    │               │
+     │               │               │◄──────────────┤               │
+     │               │               │               │               │
+     │               │               │  执行工具      │               │
+     │               │               ├──────────────────────────────►│
+     │               │               │               │               │
+     │               │               │               │  工具结果      │
+     │               │               │               │◄──────────────┤
+     │               │               │               │               │
+     │               │               │  tool-result  │               │
+     │               │               ├──────────────►│               │
+     │               │               │               │               │
+     │               │               │  继续处理      │               │
+     │               │               │◄──────────────┤               │
+     │               │               │               │               │
+     │               │  最终结果      │               │               │
+     │               │◄──────────────┤               │               │
+     │               │               │               │               │
+     │  显示完成      │               │               │               │
+     │◄──────────────┤               │               │               │
+     │               │               │               │               │
+</code></pre>
+<hr>
+<h2>7. 数据流与模块关系</h2>
+<h3>7.1 模块依赖关系图</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────────────────────┐
+│                              模块依赖关系图                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+    │   CLI    │────▶│  Config  │────▶│ Provider │────▶│   Auth   │
+    │          │     │          │     │          │     │          │
+    └──────────┘     └──────────┘     └──────────┘     └──────────┘
+         │                │                  │                  │
+         └────────────────┼──────────────────┼──────────────────┘
+                          │                  │
+                          ▼                  ▼
+                    ┌──────────┐     ┌──────────┐
+                    │ Instance │     │  Agent   │
+                    │          │     │          │
+                    └──────────┘     └──────────┘
+                           │                  │
+                           └────────┬─────────┘
+                                    │
+                                    ▼
+                          ┌──────────────────┐
+                          │     Server       │
+                          │                  │
+                          └──────────────────┘
+                                    │
+          ┌─────────────────────────┼─────────────────────────┐
+          │                         │                         │
+          ▼                         ▼                         ▼
+  ┌──────────┐             ┌──────────┐             ┌──────────┐
+  │  Session │             │   Tool   │             │    MCP   │
+  │          │             │          │             │          │
+  └──────────┘             └──────────┘             └──────────┘
+         │                         │                         │
+         └─────────────────────────┼─────────────────────────┘
+                                   │
+                                   ▼
+                         ┌──────────────────┐
+                         │ SessionProcessor │
+                         │                  │
+                         └──────────────────┘
+                              │         │
+                ┌─────────────┘         └─────────────┐
+                │                                     │
+                ▼                                     ▼
+        ┌──────────┐                         ┌──────────┐
+        │   LLM    │◄────────────────────────│  Storage │
+        │          │─── 工具结果/消息 ────────▶│          │
+        └──────────┘                         └──────────┘
+                │                                     │
+                └──────────────┬──────────────────────┘
+                               │
+                               ▼
+                      ┌──────────────────┐
+                      │     Plugin       │
+                      │                  │
+                      └──────────────────┘
+                               │
+                               ▼
+                      ┌──────────────────┐
+                      │   Permission     │
+                      │                  │
+                      └──────────────────┘
+</code></pre>
+<h3>7.2 数据流向说明</h3>
+<p><strong>配置流向</strong>:</p>
+<ol>
+<li><code>Config</code> 加载所有配置文件</li>
+<li><code>Provider</code> 读取提供商和模型配置</li>
+<li><code>Agent</code> 加载智能体定义和权限</li>
+<li><code>Tool</code> 定义工具的可用性</li>
+</ol>
+<p><strong>会话生命周期</strong>:</p>
+<ol>
+<li><code>Server</code> 接收请求</li>
+<li><code>Session</code> 创建和管理会话</li>
+<li><code>LLM</code> 处理用户输入</li>
+<li><code>Processor</code> 协调工具调用</li>
+<li><code>Storage</code> 持久化消息和状态</li>
+</ol>
+<p><strong>事件流向</strong>:</p>
+<ol>
+<li>模块发布事件到 <code>Bus</code></li>
+<li>其他模块订阅感兴趣的事件</li>
+<li>插件可以通过事件扩展功能</li>
+</ol>
+<hr>
+<h2>8. 设计模式总结</h2>
+<h3>8.1 架构模式</h3>
+<table>
+<thead>
+<tr>
+<th>模式</th>
+<th>应用场景</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>事件驱动架构</strong></td>
+<td>模块间通信</td>
+<td><code>src/util/bus.ts</code></td>
+</tr>
+<tr>
+<td><strong>插件化架构</strong></td>
+<td>功能扩展</td>
+<td><code>src/plugin/</code></td>
+</tr>
+<tr>
+<td><strong>分层架构</strong></td>
+<td>职责分离</td>
+<td>整体项目结构</td>
+</tr>
+<tr>
+<td><strong>微内核架构</strong></td>
+<td>核心系统 + 插件</td>
+<td>CLI + 工具/插件</td>
+</tr>
+</tbody>
+</table>
+<h3>8.2 设计模式</h3>
+<table>
+<thead>
+<tr>
+<th>模式</th>
+<th>应用场景</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>工厂模式</strong></td>
+<td>创建工具、提供商</td>
+<td><code>Tool.define()</code>, <code>Provider.create()</code></td>
+</tr>
+<tr>
+<td><strong>策略模式</strong></td>
+<td>不同的 LLM 提供商</td>
+<td><code>Provider</code> 接口</td>
+</tr>
+<tr>
+<td><strong>观察者模式</strong></td>
+<td>事件系统</td>
+<td><code>Bus.publish()</code>, <code>Bus.subscribe()</code></td>
+</tr>
+<tr>
+<td><strong>中间件模式</strong></td>
+<td>请求/响应处理</td>
+<td><code>wrapLanguageModel()</code></td>
+</tr>
+<tr>
+<td><strong>单例模式</strong></td>
+<td>全局配置</td>
+<td><code>Config.get()</code>, <code>Instance.state()</code></td>
+</tr>
+<tr>
+<td><strong>构建器模式</strong></td>
+<td>复杂对象构建</td>
+<td><code>Agent.Info</code> 构建</td>
+</tr>
+<tr>
+<td><strong>命令模式</strong></td>
+<td>CLI 命令</td>
+<td><code>defineCliCommand()</code></td>
+</tr>
+<tr>
+<td><strong>适配器模式</strong></td>
+<td>MCP 集成</td>
+<td><code>MCP 适配器</code></td>
+</tr>
+<tr>
+<td><strong>状态模式</strong></td>
+<td>会话状态</td>
+<td><code>SessionStatus.set()</code></td>
+</tr>
+<tr>
+<td><strong>模板方法模式</strong></td>
+<td>工具执行流程</td>
+<td><code>Tool.execute()</code></td>
+</tr>
+</tbody>
+</table>
+<h3>8.3 核心设计原则</h3>
+<ol>
+<li>
+<p><strong>单一职责原则 (SRP)</strong></p>
+<ul>
+<li>每个模块只负责一个功能领域</li>
+<li>例如: <code>Tool</code> 只负责工具定义，<code>Storage</code> 只负责数据持久化</li>
+</ul>
+</li>
+<li>
+<p><strong>开放封闭原则 (OCP)</strong></p>
+<ul>
+<li>通过插件系统扩展功能</li>
+<li>新增工具不需要修改核心代码</li>
+</ul>
+</li>
+<li>
+<p><strong>依赖倒置原则 (DIP)</strong></p>
+<ul>
+<li>模块依赖抽象接口而非具体实现</li>
+<li>例如: <code>Provider</code> 接口定义了所有提供商必须实现的方法</li>
+</ul>
+</li>
+<li>
+<p><strong>接口隔离原则 (ISP)</strong></p>
+<ul>
+<li>工具接口精简，只包含必要方法</li>
+<li><code>Tool.Info</code> 接口只定义 <code>id</code> 和 <code>init</code></li>
+</ul>
+</li>
+<li>
+<p><strong>里氏替换原则 (LSP)</strong></p>
+<ul>
+<li>所有 Provider 实现可以互相替换</li>
+<li>所有 Tool 实现遵循相同的接口约定</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2>附录</h2>
+<h3>A. 关键常量</h3>
+<table>
+<thead>
+<tr>
+<th>常量</th>
+<th>值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DOOM_LOOP_THRESHOLD</code></td>
+<td>3</td>
+<td>循环检测阈值</td>
+</tr>
+<tr>
+<td><code>MAX_OUTPUT_LENGTH</code></td>
+<td>50000</td>
+<td>最大输出长度</td>
+</tr>
+<tr>
+<td><code>DEFAULT_TIMEOUT</code></td>
+<td>120000</td>
+<td>默认超时时间 (2分钟)</td>
+</tr>
+<tr>
+<td><code>MAX_FILE_SIZE</code></td>
+<td>50000</td>
+<td>最大文件读取大小 (50KB)</td>
+</tr>
+</tbody>
+</table>
+<h3>B. 环境变量</h3>
+<table>
+<thead>
+<tr>
+<th>变量</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OPENCODE</code></td>
+<td>标识 OpenCode 环境</td>
+</tr>
+<tr>
+<td><code>AGENT</code></td>
+<td>标识 Agent 环境</td>
+</tr>
+<tr>
+<td><code>OPENCODE_CONFIG</code></td>
+<td>自定义配置路径</td>
+</tr>
+<tr>
+<td><code>OPENCODE_CONFIG_CONTENT</code></td>
+<td>内联配置内容</td>
+</tr>
+<tr>
+<td><code>OPENCODE_FORK</code></td>
+<td>Fork 模式</td>
+</tr>
+</tbody>
+</table>
+<h3>C. 文件路径约定</h3>
+<table>
+<thead>
+<tr>
+<th>路径</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>~/.config/opencode/</code></td>
+<td>全局配置目录</td>
+</tr>
+<tr>
+<td><code>~/.opencode/</code></td>
+<td>数据存储目录</td>
+</tr>
+<tr>
+<td><code>.opencode/</code></td>
+<td>项目配置目录</td>
+</tr>
+<tr>
+<td><code>opencode.json</code></td>
+<td>项目配置文件</td>
+</tr>
+</tbody>
+</table>
+<h3>D. 相关资源</h3>
+<ul>
+<li><strong>Vercel AI SDK</strong>: https://sdk.vercel.ai/docs</li>
+<li><strong>Model Context Protocol</strong>: https://modelcontextprotocol.io</li>
+<li><strong>Ripgrep</strong>: https://github.com/BurntSushi/ripgrep</li>
+<li><strong>Hono</strong>: https://hono.dev</li>
+</ul>
+<hr>
+<p><strong>文档结束</strong></p>
+<blockquote>
+<p>本文档由 OpenCode 项目源代码分析生成，详细描述了项目的完整架构、模块实现和请求处理流程。</p>
+</blockquote>
